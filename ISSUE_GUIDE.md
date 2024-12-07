@@ -30,7 +30,7 @@ The directory split up in this way specifically to reduce friction when creating
 To start the admin panel so you can manually recreate your issue, you can run the following command:
 
 ```bash
-# This command will start up Payload using your config
+# This command will start up Payload using your conf ig
 # NOTE: it will wipe the test database on restart
 pnpm dev _community
 ```
