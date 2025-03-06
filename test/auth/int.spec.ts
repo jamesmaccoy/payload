@@ -12,7 +12,8 @@ import { initPayloadInt } from '../helpers/initPayloadInt.js'
 import {
   apiKeysSlug,
   namedSaveToJWTValue,
-  partialDisableLocaleStrategiesSlug,
+  partialDisableLocalStrategiesSlug,
+  publicUsersSlug,
   saveToJWTKey,
   slug,
 } from './shared.js'
@@ -276,7 +277,7 @@ describe('Auth', () => {
 
       it('should allow verification of a user', async () => {
         const emailToVerify = 'verify@me.com'
-        const response = await restClient.POST(`/public-users`, {
+        const response = await restClient.POST(`/${publicUsersSlug}`, {
           body: JSON.stringify({
             email: emailToVerify,
             password,
@@ -290,7 +291,7 @@ describe('Auth', () => {
         expect(response.status).toBe(201)
 
         const userResult = await payload.find({
-          collection: 'public-users',
+          collection: publicUsersSlug,
           limit: 1,
           showHiddenFields: true,
           where: {
@@ -306,13 +307,13 @@ describe('Auth', () => {
         expect(_verificationToken).toBeDefined()
 
         const verificationResponse = await restClient.POST(
-          `/public-users/verify/${_verificationToken}`,
+          `/${publicUsersSlug}/verify/${_verificationToken}`,
         )
 
         expect(verificationResponse.status).toBe(200)
 
         const afterVerifyResult = await payload.find({
-          collection: 'public-users',
+          collection: publicUsersSlug,
           limit: 1,
           showHiddenFields: true,
           where: {
@@ -719,7 +720,7 @@ describe('Auth', () => {
     it('should allow create of a user with disableLocalStrategy', async () => {
       const email = 'test@example.com'
       const user = await payload.create({
-        collection: partialDisableLocaleStrategiesSlug,
+        collection: partialDisableLocalStrategiesSlug,
         data: {
           email,
           // password is not required
@@ -729,7 +730,7 @@ describe('Auth', () => {
     })
 
     it('should retain fields when auth.disableLocalStrategy.enableFields is true', () => {
-      const authFields = payload.collections[partialDisableLocaleStrategiesSlug].config.fields
+      const authFields = payload.collections[partialDisableLocalStrategiesSlug].config.fields
         // eslint-disable-next-line jest/no-conditional-in-test
         .filter((field) => 'name' in field && field.name)
         .map((field) => (field as FieldAffectingData).name)
@@ -749,7 +750,7 @@ describe('Auth', () => {
 
     it('should prevent login of user with disableLocalStrategy.', async () => {
       await payload.create({
-        collection: partialDisableLocaleStrategiesSlug,
+        collection: partialDisableLocalStrategiesSlug,
         data: {
           email: devUser.email,
           password: devUser.password,
@@ -758,7 +759,7 @@ describe('Auth', () => {
 
       await expect(async () => {
         await payload.login({
-          collection: partialDisableLocaleStrategiesSlug,
+          collection: partialDisableLocalStrategiesSlug,
           data: {
             email: devUser.email,
             password: devUser.password,
@@ -768,7 +769,7 @@ describe('Auth', () => {
     })
 
     it('rest - should prevent login', async () => {
-      const response = await restClient.POST(`/${partialDisableLocaleStrategiesSlug}/login`, {
+      const response = await restClient.POST(`/${partialDisableLocalStrategiesSlug}/login`, {
         body: JSON.stringify({
           email,
           password,
@@ -782,24 +783,24 @@ describe('Auth', () => {
   describe('API Key', () => {
     it('should authenticate via the correct API key user', async () => {
       const usersQuery = await payload.find({
-        collection: 'api-keys',
+        collection: apiKeysSlug,
       })
 
       const [user1, user2] = usersQuery.docs
 
       const success = await restClient
-        .GET(`/api-keys/${user2.id}`, {
+        .GET(`/${apiKeysSlug}/${user2.id}`, {
           headers: {
-            Authorization: `api-keys API-Key ${user2.apiKey}`,
+            Authorization: `${apiKeysSlug} API-Key ${user2.apiKey}`,
           },
         })
         .then((res) => res.json())
 
       expect(success.apiKey).toStrictEqual(user2.apiKey)
 
-      const fail = await restClient.GET(`/api-keys/${user1.id}`, {
+      const fail = await restClient.GET(`/${apiKeysSlug}/${user1.id}`, {
         headers: {
-          Authorization: `api-keys API-Key ${user2.apiKey}`,
+          Authorization: `${apiKeysSlug} API-Key ${user2.apiKey}`,
         },
       })
 
@@ -809,7 +810,7 @@ describe('Auth', () => {
     it('should not remove an API key from a user when updating other fields', async () => {
       const apiKey = uuid()
       const user = await payload.create({
-        collection: 'api-keys',
+        collection: apiKeysSlug,
         data: {
           apiKey,
           enableAPIKey: true,
@@ -818,14 +819,14 @@ describe('Auth', () => {
 
       const updatedUser = await payload.update({
         id: user.id,
-        collection: 'api-keys',
+        collection: apiKeysSlug,
         data: {
           enableAPIKey: true,
         },
       })
 
       const userResult = await payload.find({
-        collection: 'api-keys',
+        collection: apiKeysSlug,
         where: {
           id: {
             equals: user.id,
@@ -857,7 +858,7 @@ describe('Auth', () => {
 
       // use the api key in a fetch to assert that it is disabled
       const response = await restClient
-        .GET(`/api-keys/me`, {
+        .GET(`/${apiKeysSlug}/me`, {
           headers: {
             Authorization: `${apiKeysSlug} API-Key ${apiKey}`,
           },
@@ -888,7 +889,7 @@ describe('Auth', () => {
 
       // use the api key in a fetch to assert that it is disabled
       const response = await restClient
-        .GET(`/api-keys/me`, {
+        .GET(`/${apiKeysSlug}/me`, {
           headers: {
             Authorization: `${apiKeysSlug} API-Key ${apiKey}`,
           },
@@ -931,6 +932,41 @@ describe('Auth', () => {
       })
 
       expect(reset.user.email).toStrictEqual('dev@payloadcms.com')
+    })
+
+    it('should not allow reset password if forgotPassword expiration token is expired', async () => {
+      // Mock Date.now() to simulate the forgotPassword call happening 6 minutes ago (current expiration is set to 5 minutes)
+      const originalDateNow = Date.now
+      const mockDateNow = jest.spyOn(Date, 'now').mockImplementation(() => {
+        // Move the current time back by 6 minutes (360,000 ms)
+        return originalDateNow() - 6 * 60 * 1000
+      })
+
+      let forgot
+      try {
+        // Call forgotPassword while the mocked Date.now() is active
+        forgot = await payload.forgotPassword({
+          collection: 'users',
+          data: {
+            email: 'dev@payloadcms.com',
+          },
+        })
+      } finally {
+        // Restore the original Date.now() after the forgotPassword call
+        mockDateNow.mockRestore()
+      }
+
+      // Attempt to reset password, which should fail because the token is expired
+      await expect(
+        payload.resetPassword({
+          collection: 'users',
+          data: {
+            password: 'test',
+            token: forgot,
+          },
+          overrideAccess: true,
+        }),
+      ).rejects.toThrow('Token is either invalid or has expired.')
     })
   })
 })

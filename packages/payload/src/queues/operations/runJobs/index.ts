@@ -1,3 +1,4 @@
+// @ts-strict-ignore
 import type { PaginatedDocs } from '../../../database/types.js'
 import type { PayloadRequest, Where } from '../../../types/index.js'
 import type { WorkflowJSON } from '../../config/types/workflowJSONTypes.js'
@@ -11,16 +12,22 @@ import type { RunJobResult } from './runJob/index.js'
 
 import { Forbidden } from '../../../errors/Forbidden.js'
 import isolateObjectProperty from '../../../utilities/isolateObjectProperty.js'
+import { jobsCollectionSlug } from '../../config/index.js'
 import { getUpdateJobFunction } from './runJob/getUpdateJobFunction.js'
 import { importHandlerPath } from './runJob/importHandlerPath.js'
 import { runJob } from './runJob/index.js'
 import { runJSONJob } from './runJSONJob/index.js'
 
 export type RunJobsArgs = {
+  /**
+   * ID of the job to run
+   */
+  id?: number | string
   limit?: number
   overrideAccess?: boolean
   queue?: string
   req: PayloadRequest
+  where?: Where
 }
 
 export type RunJobsResult = {
@@ -36,10 +43,12 @@ export type RunJobsResult = {
 }
 
 export const runJobs = async ({
+  id,
   limit = 10,
   overrideAccess,
   queue,
   req,
+  where: whereFromProps,
 }: RunJobsArgs): Promise<RunJobsResult> => {
   if (!overrideAccess) {
     const hasAccess = await req.payload.config.jobs.access.run({ req })
@@ -89,20 +98,42 @@ export const runJobs = async ({
     })
   }
 
+  if (whereFromProps) {
+    where.and.push(whereFromProps)
+  }
+
   // Find all jobs and ensure we set job to processing: true as early as possible to reduce the chance of
   // the same job being picked up by another worker
-  const jobsQuery = (await req.payload.update({
-    collection: 'payload-jobs',
-    data: {
-      processing: true,
-      seenByWorker: true,
-    },
-    depth: req.payload.config.jobs.depth,
-    disableTransaction: true,
-    limit,
-    showHiddenFields: true,
-    where,
-  })) as unknown as PaginatedDocs<BaseJob>
+  const jobsQuery: {
+    docs: BaseJob[]
+  } = id
+    ? {
+        docs: [
+          (await req.payload.update({
+            id,
+            collection: jobsCollectionSlug,
+            data: {
+              processing: true,
+              seenByWorker: true,
+            },
+            depth: req.payload.config.jobs.depth,
+            disableTransaction: true,
+            showHiddenFields: true,
+          })) as BaseJob,
+        ],
+      }
+    : ((await req.payload.update({
+        collection: jobsCollectionSlug,
+        data: {
+          processing: true,
+          seenByWorker: true,
+        },
+        depth: req.payload.config.jobs.depth,
+        disableTransaction: true,
+        limit,
+        showHiddenFields: true,
+        where,
+      })) as unknown as PaginatedDocs<BaseJob>)
 
   /**
    * Just for logging purposes, we want to know how many jobs are new and how many are existing (= already been tried).
@@ -223,7 +254,7 @@ export const runJobs = async ({
   if (jobsToDelete && jobsToDelete.length > 0) {
     try {
       await req.payload.delete({
-        collection: 'payload-jobs',
+        collection: jobsCollectionSlug,
         req,
         where: { id: { in: jobsToDelete } },
       })

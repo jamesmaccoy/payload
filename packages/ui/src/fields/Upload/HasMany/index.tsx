@@ -28,6 +28,7 @@ type Props = {
   readonly reloadDoc: ReloadDoc
   readonly serverURL: string
 }
+
 export function UploadComponentHasMany(props: Props) {
   const { className, fileDocs, isSortable, onRemove, onReorder, readonly, reloadDoc, serverURL } =
     props
@@ -66,13 +67,23 @@ export function UploadComponentHasMany(props: Props) {
       >
         {fileDocs.map(({ relationTo, value }, index) => {
           const id = String(value.id)
-          const url: string = value.thumbnailURL || value.url
           let src: string
+          let thumbnailSrc: string
 
-          try {
-            src = new URL(url, serverURL).toString()
-          } catch {
-            src = `${serverURL}${url}`
+          if (value.url) {
+            try {
+              src = new URL(value.url, serverURL).toString()
+            } catch {
+              src = `${serverURL}${value.url}`
+            }
+          }
+
+          if (value.thumbnailURL) {
+            try {
+              thumbnailSrc = new URL(value.thumbnailURL, serverURL).toString()
+            } catch {
+              thumbnailSrc = `${serverURL}${value.thumbnailURL}`
+            }
           }
 
           return (
@@ -115,6 +126,7 @@ export function UploadComponentHasMany(props: Props) {
                       onRemove={() => removeItem(index)}
                       reloadDoc={reloadDoc}
                       src={src}
+                      thumbnailSrc={thumbnailSrc || src}
                       withMeta={false}
                       x={value?.width as number}
                       y={value?.height as number}

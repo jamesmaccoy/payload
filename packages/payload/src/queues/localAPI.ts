@@ -1,4 +1,4 @@
-import type { RunningJobFromTask } from './config/types/workflowTypes.js'
+import type { BaseJob, RunningJobFromTask } from './config/types/workflowTypes.js'
 
 import {
   createLocalReq,
@@ -6,7 +6,9 @@ import {
   type PayloadRequest,
   type RunningJob,
   type TypedJobs,
+  type Where,
 } from '../index.js'
+import { jobsCollectionSlug } from './config/index.js'
 import { runJobs } from './operations/runJobs/index.js'
 
 export const getJobsLocalAPI = (payload: Payload) => ({
@@ -21,6 +23,7 @@ export const getJobsLocalAPI = (payload: Payload) => ({
           req?: PayloadRequest
           // TTaskOrWorkflowlug with keyof TypedJobs['workflows'] removed:
           task: TTaskOrWorkflowSlug extends keyof TypedJobs['tasks'] ? TTaskOrWorkflowSlug : never
+          waitUntil?: Date
           workflow?: never
         }
       | {
@@ -28,6 +31,7 @@ export const getJobsLocalAPI = (payload: Payload) => ({
           queue?: string
           req?: PayloadRequest
           task?: never
+          waitUntil?: Date
           workflow: TTaskOrWorkflowSlug extends keyof TypedJobs['workflows']
             ? TTaskOrWorkflowSlug
             : never
@@ -37,7 +41,7 @@ export const getJobsLocalAPI = (payload: Payload) => ({
       ? RunningJob<TTaskOrWorkflowSlug>
       : RunningJobFromTask<TTaskOrWorkflowSlug>
   > => {
-    let queue: string
+    let queue: string | undefined = undefined
 
     // If user specifies queue, use that
     if (args.queue) {
@@ -51,14 +55,26 @@ export const getJobsLocalAPI = (payload: Payload) => ({
       }
     }
 
+    const data: Partial<BaseJob> = {
+      input: args.input,
+    }
+
+    if (queue) {
+      data.queue = queue
+    }
+    if (args.waitUntil) {
+      data.waitUntil = args.waitUntil?.toISOString()
+    }
+    if (args.workflow) {
+      data.workflowSlug = args.workflow as string
+    }
+    if (args.task) {
+      data.taskSlug = args.task as string
+    }
+
     return (await payload.create({
-      collection: 'payload-jobs',
-      data: {
-        input: args.input,
-        queue,
-        taskSlug: 'task' in args ? args.task : undefined,
-        workflowSlug: 'workflow' in args ? args.workflow : undefined,
-      },
+      collection: jobsCollectionSlug,
+      data,
       req: args.req,
     })) as TTaskOrWorkflowSlug extends keyof TypedJobs['workflows']
       ? RunningJob<TTaskOrWorkflowSlug>
@@ -70,14 +86,107 @@ export const getJobsLocalAPI = (payload: Payload) => ({
     overrideAccess?: boolean
     queue?: string
     req?: PayloadRequest
+    where?: Where
   }): Promise<ReturnType<typeof runJobs>> => {
     const newReq: PayloadRequest = args?.req ?? (await createLocalReq({}, payload))
-    const result = await runJobs({
+
+    return await runJobs({
       limit: args?.limit,
       overrideAccess: args?.overrideAccess !== false,
       queue: args?.queue,
       req: newReq,
+      where: args?.where,
     })
-    return result
+  },
+
+  runByID: async (args: {
+    id: number | string
+    overrideAccess?: boolean
+    req?: PayloadRequest
+  }): Promise<ReturnType<typeof runJobs>> => {
+    const newReq: PayloadRequest = args.req ?? (await createLocalReq({}, payload))
+
+    return await runJobs({
+      id: args.id,
+      overrideAccess: args.overrideAccess !== false,
+      req: newReq,
+    })
+  },
+
+  cancel: async (args: {
+    overrideAccess?: boolean
+    queue?: string
+    req?: PayloadRequest
+    where: Where
+  }): Promise<void> => {
+    const newReq: PayloadRequest = args.req ?? (await createLocalReq({}, payload))
+
+    const and: Where[] = [
+      args.where,
+      {
+        completedAt: {
+          exists: false,
+        },
+      },
+      {
+        hasError: {
+          not_equals: true,
+        },
+      },
+    ]
+
+    if (args.queue) {
+      and.push({
+        queue: {
+          equals: args.queue,
+        },
+      })
+    }
+
+    await payload.db.updateMany({
+      collection: jobsCollectionSlug,
+      data: {
+        completedAt: null,
+        error: {
+          cancelled: true,
+        },
+        hasError: true,
+        processing: false,
+        waitUntil: null,
+      } as Partial<
+        {
+          completedAt: null
+          waitUntil: null
+        } & BaseJob
+      >,
+      req: newReq,
+      where: { and },
+    })
+  },
+
+  cancelByID: async (args: {
+    id: number | string
+    overrideAccess?: boolean
+    req?: PayloadRequest
+  }): Promise<void> => {
+    const newReq: PayloadRequest = args.req ?? (await createLocalReq({}, payload))
+
+    await payload.db.updateOne({
+      id: args.id,
+      collection: jobsCollectionSlug,
+      data: {
+        completedAt: null,
+        error: {
+          cancelled: true,
+        },
+        hasError: true,
+        processing: false,
+        waitUntil: null,
+      } as {
+        completedAt: null
+        waitUntil: null
+      } & BaseJob,
+      req: newReq,
+    })
   },
 })

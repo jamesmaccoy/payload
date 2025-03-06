@@ -1,5 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
+import { ValidationError } from 'payload'
+
 import { categoriesSlug, hiddenPostsSlug, postsSlug } from '../shared.js'
 import { singularSlug } from './Singular.js'
 
@@ -91,6 +93,9 @@ export const Categories: CollectionConfig = {
           type: 'join',
           collection: postsSlug,
           on: 'group.category',
+          admin: {
+            defaultColumns: ['id', 'createdAt', 'title'],
+          },
         },
         {
           name: 'camelCasePosts',
@@ -99,6 +104,48 @@ export const Categories: CollectionConfig = {
           on: 'group.camelCaseCategory',
         },
       ],
+    },
+    {
+      name: 'arrayPosts',
+      type: 'join',
+      collection: 'posts',
+      on: 'array.category',
+    },
+    {
+      name: 'localizedArrayPosts',
+      type: 'join',
+      collection: 'posts',
+      on: 'localizedArray.category',
+    },
+    {
+      name: 'blocksPosts',
+      type: 'join',
+      collection: 'posts',
+      on: 'blocks.category',
+    },
+    {
+      name: 'polymorphic',
+      type: 'join',
+      collection: postsSlug,
+      on: 'polymorphic',
+    },
+    {
+      name: 'polymorphics',
+      type: 'join',
+      collection: postsSlug,
+      on: 'polymorphics',
+    },
+    {
+      name: 'localizedPolymorphic',
+      type: 'join',
+      collection: postsSlug,
+      on: 'localizedPolymorphic',
+    },
+    {
+      name: 'localizedPolymorphics',
+      type: 'join',
+      collection: postsSlug,
+      on: 'localizedPolymorphics',
     },
     {
       name: 'singulars',
@@ -114,6 +161,34 @@ export const Categories: CollectionConfig = {
       where: {
         isFiltered: { not_equals: true },
       },
+    },
+    {
+      name: 'joinWithError',
+      type: 'join',
+      collection: postsSlug,
+      on: 'category',
+      hooks: {
+        beforeValidate: [
+          ({ data }) => {
+            if (data?.enableErrorOnJoin) {
+              throw new ValidationError({
+                collection: 'categories',
+                errors: [
+                  {
+                    message: 'enableErrorOnJoin is true',
+                    path: 'joinWithError',
+                  },
+                ],
+              })
+            }
+          },
+        ],
+      },
+    },
+    {
+      name: 'enableErrorOnJoin',
+      type: 'checkbox',
+      defaultValue: false,
     },
   ],
 }

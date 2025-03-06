@@ -22,11 +22,12 @@ type Props = {
   readonly className?: string
   readonly collectionSlug: string
   readonly filename: string
-  readonly id: number | string
+  readonly id?: number | string
   readonly mimeType: string
   readonly onRemove: () => void
   readonly reloadDoc: ReloadDoc
   readonly src: string
+  readonly thumbnailSrc: string
   readonly withMeta?: boolean
   readonly x?: number
   readonly y?: number
@@ -45,24 +46,25 @@ export function RelationshipContent(props: Props) {
     onRemove,
     reloadDoc,
     src,
+    thumbnailSrc,
     withMeta = true,
     x,
     y,
   } = props
+
+  const [DocumentDrawer, _, { openDrawer }] = useDocumentDrawer({
+    id: src ? id : undefined,
+    collectionSlug,
+  })
 
   const onSave = React.useCallback(
     async ({ doc }: { doc: TypeWithID }) => reloadDoc(doc.id, collectionSlug),
     [reloadDoc, collectionSlug],
   )
 
-  const [DocumentDrawer, _, { openDrawer }] = useDocumentDrawer({
-    id,
-    collectionSlug,
-  })
-
   function generateMetaText(mimeType: string, size: number): string {
     const sections: string[] = []
-    if (mimeType.includes('image')) {
+    if (size) {
       sections.push(formatFilesize(size))
     }
 
@@ -86,14 +88,18 @@ export function RelationshipContent(props: Props) {
           alt={alt}
           className={`${baseClass}__thumbnail`}
           filename={filename}
-          fileSrc={src}
+          fileSrc={thumbnailSrc}
           size="small"
         />
         <div className={`${baseClass}__details`}>
           <p className={`${baseClass}__filename`}>
-            <a href={src} target="_blank">
-              {filename}
-            </a>
+            {src ? (
+              <a href={src} target="_blank">
+                {filename}
+              </a>
+            ) : (
+              filename
+            )}
           </p>
           {withMeta ? <p className={`${baseClass}__meta`}>{metaText}</p> : null}
         </div>
